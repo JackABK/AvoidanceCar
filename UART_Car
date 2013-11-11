@@ -1,0 +1,326 @@
+/***********************************************************/
+/* 程式名稱:Android BTcar.APK 操控遙控車                   */
+/* 腳位: pin11、pin12接前進的左右輪                        */
+/*       pin10、pin13接後退的左右輪                        */
+/*       pin4 接Buzzer                                     */
+/*       pin6、pin5個接一顆LED                             */
+/*       pin3  接七彩自閃LED                               */
+/*       Arduino的TX接上藍牙的RX，RX接上藍牙的TX           */
+/**********如需更改腳位，請勿更改到pin13********參觀影片如下/
+//    http://v.youku.com/v_show/id_XMzczMzg1MzA4.html 
+//    http://v.youku.com/v_show/id_XMzczOTEzMDQ0.html
+
+/* 功能簡介:按下APK的控制鈕能讓車子前進後退左轉右轉，還能配合
+倒車時有倒車聲音，左轉右轉則會有各個LED閃爍。           */
+/* 作者: HIF團隊 ( JimmyFang )               2012/04/11    */
+/* 加強版: HIF團隊 ( LaiHoya )               2012/05/12    */
+/* 生產經營團隊   Keyes群 ( Lisa ZKG... )    2012/05/15    */
+/***********************************************************/
+// 真正的量產版第13和第9腳對調 3 5 6 搭配位置能接3色RGB_LED
+// 配合的第7 13來做超聲波的輸入  第9腳能接一個舵機 第2腳是
+//   日後能擴充一個或是數個踩空或碰撞傳感器  能用中斷的請求
+//   迫使車子停下 還剩下的 A0 ~ A5 也看日後的使用者自由作輸
+//   出入及模擬輸入的 自由應用                 Ver 3.0
+
+
+#include <Ultrasonic.h>
+
+#define TRIGPIN 13
+#define ECHOPIN 7
+
+//Ultrasonic ultrasonic(TRIGGER_PIN , ECHO_PIN);
+
+//******Program code setting*************************************//
+char val;             //Variable to receive data from the serial port
+char temp[2];
+int LED_Status = 0;
+int ledr=1,ledl=1;
+volatile unsigned int count = 0; 
+
+void setup()       //腳位設定
+{
+		for(int i=8;i<=12;i++)
+		{
+				pinMode(i,OUTPUT);
+				//digitalWrite(i,HIGH);
+		}
+		digitalWrite(11,LOW);
+		digitalWrite(10,LOW);
+
+		for(int i=3;i<=6;i++)
+		{
+				pinMode(i,OUTPUT); 
+		}
+
+		pinMode(TRIGPIN, OUTPUT);
+		pinMode(ECHOPIN, INPUT);
+
+		Car_Init();   //將車子做初始化的動作
+
+		//***設定內部中斷時間*********************************************//
+		TCCR1A = 0x00;
+		// 沒有任何設定，只是一個計時器 
+		TCCR1B &= ~_BV(CS12);         //  
+		TCCR1B &= ~_BV(CS11);        
+		TCCR1B |= _BV(CS10);       
+		TCNT1 = 0;
+		TIMSK1 |= _BV(TOIE1);  // 開啟內部計時器
+		Serial.begin(9600);   // 設定袍率為 9600bps  
+		//****************************************************************//
+}
+
+//******************************************************************//
+
+
+//*****Main code do nothing*****************************************//
+void loop()
+{
+		performCommand();
+		long cm = ping();
+
+		/* ultrasonic sensor detection */
+		if (cm <= 100) {
+				Serial.print(", CM: ");
+				Serial.print(cm);
+				delay(cm*1.5 + 10);
+
+		}
+
+}
+
+//ultrasonic function
+long ping() {
+		digitalWrite(TRIGPIN, LOW);
+		delayMicroseconds(2);
+		digitalWrite(TRIGPIN, HIGH);
+		delayMicroseconds(10);
+		digitalWrite(TRIGPIN, LOW);
+		return pulseIn(ECHOPIN, HIGH)/58;
+}
+
+void Car_Init()
+{
+		go_forward();
+		delay(1000);
+		stop_go_forward();
+		go_reverse();
+		delay(1000);
+		stop_go_reverse();
+}
+
+//***判斷送來的訊號************************************************//
+void performCommand()
+{
+		if(Serial.available())  // 接收串列口資料
+		{
+				temp[1]=temp[0];
+				temp[0]=Serial.read();
+		}
+
+		if (temp[0] == 'f')
+		{ 
+				if(temp[1] == 'r')
+				{
+						LED_Status = 1;
+						go_right_F();   //  前進時右轉
+				}
+				else if(temp[1] == 'l')
+				{
+						LED_Status = 2;
+						go_left_F();    //  前進時左轉
+				}
+				else
+				{
+						LED_Status = 0;
+						go_forward();   // 前進
+				}
+		} 
+		else if (temp[0] == 'z') 
+		{ 
+				LED_Status = 0;
+				stop_go_forward();   // 停止前進
+		} 
+
+		else if (temp[0] == 'b')
+		{ 
+				if(temp[1] == 'r')
+				{
+						LED_Status = 3;
+						go_right_B();   // 倒退時右轉
+				}
+				else if(temp[1] == 'l')
+				{
+						LED_Status = 4;
+						go_left_B();   // 倒退時左轉
+				}
+				else
+				{
+						LED_Status = 5;
+						go_reverse();  // 倒退
+				}
+		} 
+
+		else if (temp[0] == 'y') 
+		{ 
+				//TIMSK1 &= ~_BV(TOIE1);  // 關閉內部定時器
+				LED_Status = 0;
+				//digitalWrite(7,LOW);
+				stop_go_reverse();  // 停止倒退
+		} 
+		else if (temp[0] == 'a')
+		{ 
+				lights_on();   // 開啟近燈
+		} 
+		else if (temp[0] == 'c') 
+		{
+				lights_off();   // 關閉近燈
+		} 
+		else if (temp[0] == 'd') 
+		{ 
+				long_lights_on();  // 開啟遠燈
+		} 
+		else if (temp[0] == 'e') 
+		{ 
+				long_lights_off();  // 關閉遠燈
+		}
+		else if (temp[0] == 't') 
+		{ 
+				go_turbo();  // 開啟渦輪表示燈
+		} 
+		else if (temp[0] == 'x') 
+		{ 
+				stop_go_turbo();  // 關閉渦輪表示燈
+		} 
+
+}
+
+
+//*****Action code***********************************************//
+void go_forward()      // 前進動作
+{
+		digitalWrite(12,HIGH);
+		digitalWrite(8,HIGH);
+		digitalWrite(10,HIGH);  
+		digitalWrite(11,HIGH);  
+}
+void stop_go_forward()    // 停止前進動作
+{
+		//digitalWrite(12,HIGH);
+		//digitalWrite(8,HIGH);
+		digitalWrite(10,LOW);   
+		digitalWrite(11,LOW);  
+}
+void go_reverse()    // 倒退動作
+{
+		digitalWrite(10,HIGH);
+		digitalWrite(11,HIGH);
+		digitalWrite(12,LOW);  
+		digitalWrite(8,LOW);  
+}
+void stop_go_reverse()    // 停止倒退動作
+{
+		digitalWrite(10,LOW);
+		digitalWrite(11,LOW);
+		//digitalWrite(12,HIGH);   
+		//digitalWrite(8,HIGH);   
+}
+void go_right_F()   // 前進時右轉彎動作
+{
+		digitalWrite(12,HIGH);
+		digitalWrite(8,LOW);
+		digitalWrite(11,HIGH);    
+		digitalWrite(10,HIGH);   
+}
+void go_left_F()    // 前進時左轉彎動作
+{
+		digitalWrite(12,LOW);
+		digitalWrite(8,HIGH);
+		digitalWrite(11,HIGH);   
+		digitalWrite(10,HIGH);    
+}
+void go_right_B()     // 後退時右轉彎動作
+{
+		digitalWrite(10,HIGH);
+		digitalWrite(11,HIGH);
+		digitalWrite(12,LOW);  
+		digitalWrite(8,HIGH);    
+}
+void go_left_B()     // 後退時左轉彎動作
+{
+		digitalWrite(10,HIGH);
+		digitalWrite(11,HIGH);
+		digitalWrite(12,HIGH);   
+		digitalWrite(8,LOW); 
+}
+void lights_on() 
+{
+		digitalWrite(5, HIGH);
+		ledr=1;
+}
+void lights_off()      // Short Lights OFF
+{
+		digitalWrite(5, LOW);
+		ledr=0;
+}
+void long_lights_on()     // Long Lights ON
+{
+		digitalWrite(6, HIGH);
+		ledl=1;
+}
+void long_lights_off()     // Long Lights OFF
+{
+		digitalWrite(6, LOW);
+		ledl=0;
+}
+void go_turbo()         // Turbo action
+{
+		digitalWrite(3, HIGH);
+}
+void stop_go_turbo()      // Stop Turbo action
+{
+		digitalWrite(3, LOW);
+}
+
+//******************************************************************//
+
+
+//***Interrupt******************************************************//
+ISR (TIMER1_OVF_vect)   //內部中斷向量位址
+{   
+		count++; 
+		if (count == 122)        //判斷動作時間是不是到了
+		{  
+				if(LED_Status == 0)                      //沒做任何動作
+				{
+						digitalWrite(5,ledr);
+						digitalWrite(6,ledl);
+						digitalWrite(4,LOW);
+				}
+				else if(LED_Status == 1)                 //前進時右轉讓LED1做閃爍動作
+				{
+						digitalWrite(5,!(digitalRead(5)));
+				}
+				else if(LED_Status == 2)                 //前進時左轉讓LED2做閃爍動作
+				{
+						digitalWrite(6,!(digitalRead(6)));
+				}
+				else if(LED_Status == 3)                 //倒車時右轉讓LED1做閃爍動作
+				{                                        //並且發出嗶嗶嗶聲音
+						digitalWrite(5,!(digitalRead(5)));
+						digitalWrite(4,!(digitalRead(4)));
+				}
+				else if(LED_Status == 4)                 //倒車時左轉讓LED2做閃爍動作
+				{                                        //並且發出嗶嗶嗶的聲音
+						digitalWrite(6,!(digitalRead(6)));
+						digitalWrite(4,!(digitalRead(4)));
+				}
+				else if(LED_Status == 5)                 //倒車時讓喇叭發出聲音
+				{ 
+						digitalWrite(4,!(digitalRead(4)));
+				}      
+
+				count = 0; 
+		}   
+} 
+
+//*********************************************************************//
