@@ -37,7 +37,7 @@
 
 /*Global var setting*/
 char val;
-char acpt_cmd_temp[2]; 
+char acpt_cmd;
 
 /*setting pin mode */
 void setup()
@@ -63,17 +63,20 @@ void setup()
 /*Main code do something*/
 void loop()
 {
-		long cm_L,cm_R;
 
- 
-		while(Serial.available()>0){
-				acpt_cmd_temp[1]=acpt_cmd_temp[0];
-				acpt_cmd_temp[0]=Serial.read();
+		if(Serial.available()> 0){
+				acpt_cmd = Serial.read();
+				PerformCommand();
 		}
-		PerformCommand();
 
 
-		/*enable the auto-avoidence obstacle*/
+
+}
+
+/*Auto-avoidance obstacle*/
+void Avoidance_parse()
+{
+		long cm_L,cm_R;
 		cm_L=Get_Dist_From_Ultrasonic(TRIGPIN_L , ECHOPIN_L);
 		cm_R=Get_Dist_From_Ultrasonic(TRIGPIN_R , ECHOPIN_R);
 		if( (cm_L<50) && !(cm_R<50)){
@@ -92,6 +95,8 @@ void loop()
 			go_forward();
 			delay(100);
 		}
+
+
 }
 /*ultrasonic get distance function*/
 long Get_Dist_From_Ultrasonic(int TRIGPIN , int ECHOPIN)
@@ -117,25 +122,19 @@ void Car_Init()
 /*determine the command from Serail port*/
 void PerformCommand()
 {
-		if(acpt_cmd_temp[0] == 'f'){
-				//if(acpt_cmd_temp[1] == 'r') go_forward_R();
-				//else if(acpt_cmd_temp[1] == 'l') go_forward_L();
-				//else go_forward();
+		if(acpt_cmd == 'f'){
 				go_forward();
 		}
-		else if(acpt_cmd_temp[0] == 's'){
+		else if(acpt_cmd == 's'){
 				stop_motion();
 		}
-		else if(acpt_cmd_temp[0] == 'b'){
-				//if(acpt_cmd_temp[1] == 'r') go_reverse_R();
-				//else if(acpt_cmd_temp[1] == 'l') go_reverse_L();
-				//else go_reverse();
+		else if(acpt_cmd == 'b'){
 				go_reverse();
 		}
-		else if(acpt_cmd_temp[0] == 'l'){
+		else if(acpt_cmd == 'l'){
 				go_left();
 		}
-		else if(acpt_cmd_temp[0] == 'r'){
+		else if(acpt_cmd == 'r'){
 				go_right();
 		}
 		else{
